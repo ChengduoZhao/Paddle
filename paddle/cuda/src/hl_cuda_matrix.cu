@@ -592,3 +592,138 @@ void hl_matrix_rotate(
       mat, matRot, dimM, dimN, clockWise);
   CHECK_SYNC("hl_matrix_rotate failed");
 }
+
+
+__global__ void keMatrixVol2Col(
+        int num_kernels, real*data, real* data_col,
+        int depth, int height, int width,
+        int filterD, int filterH, int filterW,
+        int strideD, int strideH, int strideW,
+        int paddingD, int paddingH, int paddingW,
+        int depth_col, int height_col, int width_col){
+
+  for (int index = blockIdx.x * blockDim.x + threadIdx.x;
+       index < num_kernels;
+       index += blockDim.x * gridDim.x){
+
+    int w_out = index % width_col;
+    int h_out = (index / width_col ) % height_col;
+    int l_out = (index / width_col / height_col) % depth_col;
+    int channel_in = index / width_col / height_col / depth_col;
+    int channel_out = channel_in * filterD * filterH * filterW;
+    int w_in = w_out * filterW - paddingW;
+    int h_in = h_out * filterH - paddingH;
+    int d_in = l_out * filterD - paddingD;
+
+    data_col += ((channel_out * depth_col + l_out) * height_col + h_out) * width_col + w_out;
+    data_im += ((channel_in * depth + d_in) * height + h_in) * width + w_in;
+    for (int k = 0; k < kdepth; ++k) {
+      for (int i = 0; i < ksize; ++i) {
+        for (int j = 0; j < ksize; ++j) {
+          int l = l_in + k;
+          int h = h_in + i;
+          int w = w_in + j;
+          *data_col = (l >= 0 && h >= 0 && w >= 0 && h < height && w < width && l < depth) ?
+                      data[(k * height + i) * width + j] : 0;
+          data_col += depth_col * height_col * width_col;
+        }
+      }
+    }
+  }
+}
+
+void hl_matrix_vol2Col(real* data,
+                       int channels, int depth, int height, int width,
+                       int filterD, int filterH, int filterW,
+                       int strideD, int strideH, int strideW,
+                       int paddingD, int paddingH, int paddingW, real* data_col){
+
+  int depth_col = (depth + 2 * paddingD - filterD) / filterD + 1;
+  int height_col = (height + 2 * paddingH - filterH) / filterH + 1;
+  int width_col = (width + 2 * paddingW - filterW) / filterW + 1;
+  int num_kernels = channels * depth_col * height_col * width_col;
+
+  const int threads = 512;
+  const int blocks = DIVUP(num_kernels, threads);
+
+  keMatrixVol2Col<<< blocks, threads >>>(
+          num_kernels, data, data_col,
+                  depth, height, width,
+                  filterD, filterH, filterW,
+                  strideD, strideH, strideW,
+                  paddingD, paddingH, paddingW,
+                  depth_col, height_col, width_col);
+  CHECK_SYNC("hl_matrix_vol2Col failed");
+}
+
+__global__ void keMatrixCol2Vol(
+        int num_kernels, real*data_col, real* data_im,
+        int depth, int height, int width,
+        int filterD, int filterH, int filterW,
+        int strideD, int strideH, int strideW,
+        int paddingD, int paddingH, int paddingW,
+        int depth_col, int height_col, int width_col,
+        real alpha, real beta){
+
+  for (int index = blockIdx.x * blockDim.x + threadIdx.x;
+       index < num_kernels;
+       index += blockDim.x * gridDim.x) {
+
+    Dtype val = 0;
+    int w = index % width + paddingW;
+    int h = (index / width) % height + paddingH;
+    int l = (index / width / height) % depth + paddingD;
+    int c = index / (width * height * depth);
+    // compute the start and end of the output
+    int w_col_start = (w < filterW) ? 0 : (w - filterW) / strideW + 1;
+    int w_col_end = min(w / strideW + 1, width_col);
+    int h_col_start = (h < filterH) ? 0 : (h - filterH) / strideH + 1;
+    int h_col_end = min(h / strideH + 1, height_col);
+    int l_col_start = (l < filterD) ? 0 : (l - filterD) / strideD + 1;
+    int l_col_end = min(l / strideD + 1, length_col);
+
+    int offset = (c * filterD * filterW * filterH + \
+                  l * filterW * filterH + h * filterW + w) * depth_col * height_col * width_col;
+
+    int coeff_l_col = (1 - strideD * filterW * filterH * depth_col) * height_col * width_col;
+    int coeff_h_col = (1 - strideH * filterW * depth_col * height_col) * width_col;
+    int coeff_w_col = (1 - strideW * height_col * height_col * width_col);
+
+    for (int l_col = l_col_start; l_col < l_col_end; ++l_col) {
+      for (int h_col = h_col_start; h_col < h_col_end; ++h_col) {
+        for (int w_col = w_col_start; w_col < w_col_end; ++w_col) {
+          val += data_col[offset + l_col * coeff_l_col + h_col * coeff_h_col + w_col * coeff_w_col];
+        }
+      }
+    }
+    data_im[index] = val;
+  }
+}
+
+void hl_matrix_col2Vol(real* data,
+                       int channels, int depth, int height, int width,
+                       int filterD, int filterH, int filterW,
+                       int strideD, int strideH, int strideW,
+                       int paddingD, int paddingH, int paddingW,
+                       real* data_Im,
+                       real alpha, real beta){
+
+  int depth_col = (depth + 2 * paddingD - filterD) / filterD + 1;
+  int height_col = (height + 2 * paddingH - filterH) / filterH + 1;
+  int width_col = (width + 2 * paddingW - filterW) / filterW + 1;
+  int num_kernels = channels * depth * height * width;
+
+  const int threads = 512;
+  const int blocks = DIVUP(num_kernels, threads);
+
+  keMatrixCol2Vol<<< blocks, threads >>>(
+          num_kernels, data, data_Im,
+                  depth, height, width,
+                  filterD, filterH, filterW,
+                  strideD, strideH, strideW,
+                  paddingD, paddingH, paddingW,
+                  depth_col, height_col, width_col,
+                  alhpa, beta);
+
+  CHECK_SYNC("hl_matrix_col2Vol failed");
+}

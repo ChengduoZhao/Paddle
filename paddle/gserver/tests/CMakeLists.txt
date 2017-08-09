@@ -67,6 +67,21 @@ add_unittest_without_exec(test_BatchNorm
 add_test(NAME test_BatchNorm
     COMMAND test_BatchNorm)
 
+################# test_Conv3D #######################
+add_unittest_without_exec(test_Conv3D
+        test_Conv3D.cpp
+        LayerGradUtil.cpp)
+
+add_test(NAME test_Conv3D
+        COMMAND test_Conv3D)
+
+################# test_DeConv3D #######################
+add_unittest_without_exec(test_DeConv3D
+        test_DeConv3D.cpp
+        LayerGradUtil.cpp)
+
+add_test(NAME test_DeConv3D
+        COMMAND test_DeConv3D)
 
 ################# test_KmaxSeqScore #######################
 add_unittest_without_exec(test_KmaxSeqScore

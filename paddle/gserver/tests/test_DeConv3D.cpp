@@ -34,6 +34,9 @@ DECLARE_double(checkgrad_eps);
 DECLARE_bool(thread_local_rand_use_global_seed);
 DECLARE_bool(prev_batch_state);
 
+#define DECONV_OUTPUT_SIZE_TEST(IN_SIZE, KSIZE, STRID, PAD) \
+    ((IN_SIZE) - 1) * (STRID) - 2 * (PAD) + (KSIZE)
+
 void testConv3D_Layer() {
   // filter size
   const int NUM_FILTERS = 6;
@@ -45,18 +48,19 @@ void testConv3D_Layer() {
   // input image
   const int NUM_IMG = 2;
   const int CHANNELS = 3;
-  const int IMAGE_SIZE = 9;
-  const int IMAGE_SIZE_Y = 9;
-  const int IMAGE_SIZE_Z = 9;   //  2, 3, 5, 5, 5
+  const int IMAGE_SIZE = 4;
+  const int IMAGE_SIZE_Y = 6;
+  const int IMAGE_SIZE_Z = 6;   //  2, 3, 5, 5, 5
 
   // Setting up conv-trans layer
   TestConfig config;
   config.biasSize = NUM_FILTERS;
-  config.layerConfig.set_type("conv3d");
-  config.layerConfig.set_name("conv3DDD");
+  config.layerConfig.set_type("deconv3d");
+  config.layerConfig.set_name("deconv3DDD");
   config.layerConfig.set_num_filters(NUM_FILTERS);
   config.layerConfig.set_partial_sum(1);
   config.layerConfig.set_shared_biases(true);
+
 
   LayerInputConfig *input = config.layerConfig.add_inputs();
   ConvConfig *conv = input->mutable_conv_conf();
@@ -78,28 +82,29 @@ void testConv3D_Layer() {
   conv->set_img_size_y(IMAGE_SIZE_Y);
   conv->set_img_size_z(IMAGE_SIZE_Z);
 
-  conv->set_output_x(outputSize(conv->img_size(),
-                                conv->filter_size(),
-                                conv->padding(),
-                                conv->stride(),  /*  caffeMode */ true));
-  conv->set_output_y(outputSize(conv->img_size_y(),
-                                conv->filter_size_y(),
-                                conv->padding_y(),
-                                conv->stride_y(), /*  caffeMode */ true));
-  conv->set_output_z(outputSize(conv->img_size_z(),
-                                conv->filter_size_z(),
-                                conv->padding_z(),
-                                conv->stride_z(), /*  caffeMode */ true));
-
+  conv->set_output_x(DECONV_OUTPUT_SIZE_TEST(conv->img_size(),
+                                             conv->filter_size(),
+                                             conv->padding(),
+                                             conv->stride()));
+  conv->set_output_y(DECONV_OUTPUT_SIZE_TEST(conv->img_size_y(),
+                                             conv->filter_size_y(),
+                                             conv->padding_y(),
+                                             conv->stride_y()));
+  conv->set_output_z(DECONV_OUTPUT_SIZE_TEST(conv->img_size_z(),
+                                             conv->filter_size_z(),
+                                             conv->padding_z(),
+                                             conv->stride_z()));
   config.layerConfig.set_size(
           conv->output_x() * conv->output_y() * conv->output_z() * NUM_FILTERS);
-  conv->set_groups(1);
+  conv->set_groups(1);  //  1, 3
   conv->set_filter_channels(conv->channels() / conv->groups());
   config.inputDefs.push_back(
           {INPUT_DATA, "layer_0",
-           CHANNELS*IMAGE_SIZE*IMAGE_SIZE_Y*IMAGE_SIZE_Z,
+           CHANNELS * IMAGE_SIZE * IMAGE_SIZE_Y * IMAGE_SIZE_Z,
            conv->filter_channels() * \
-           FILTER_SIZE*FILTER_SIZE_Y*FILTER_SIZE_Z*NUM_FILTERS});
+         FILTER_SIZE * FILTER_SIZE_Y * FILTER_SIZE_Z * \
+         NUM_FILTERS});
+
 
   // data layer initialize
   std::vector<DataLayerPtr> dataLayers;
@@ -136,36 +141,31 @@ void testConv3D_Layer() {
       for (int k = 0; k < depth; ++k) {
         for (int i = 0; i < height; i++) {
           for (int j = 0; j < width; j++) {
-            cout << convtLayer->getOutput().value->data_\
-        	            [t * channel * height * width + \
-        	             c * depth * width * height + \
-        	             k * width * height + \
-        	             i * width + j] << " ";
-            EXPECT_FLOAT_EQ(convtLayer->getOutput().value->data_
-        	            [t * channel * height * width +
-        	             c * depth * width * height +
-        	             k * width * height +
-        	             i * width + j], 81.5);
+              cout << convtLayer->getOutput().value->data_\
+             [t*channel*height*width + \
+              c * depth * width * height + \
+              k * width * height + \
+              i * width + j] << " ";
           }
-          std::cout<<" \n";
+          cout << "\n";
         }
-        std::cout<<" \n";
+        cout << "\n";
       }
-      std::cout<<" \n";
+      cout << "\n";
     }
   }
 }
 
 TEST(Conv3D_Layer, conv3D_Layer) {
-  testConv3D_Layer();
+    testConv3D_Layer();
 }
 
 
 int main(int argc, char** argv) {
-  testing::InitGoogleTest(&argc, argv);
-  initMain(argc, argv);
-  FLAGS_thread_local_rand_use_global_seed = true;
-  srand(1);
-  return RUN_ALL_TESTS();
+    testing::InitGoogleTest(&argc, argv);
+    initMain(argc, argv);
+    FLAGS_thread_local_rand_use_global_seed = true;
+    srand(1);
+    return RUN_ALL_TESTS();
 }
 
