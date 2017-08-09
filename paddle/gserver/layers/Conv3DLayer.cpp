@@ -166,7 +166,7 @@ void Conv3DLayer::bpropWeights(int i) {
       for (int g = 0; g < groups_[i]; ++g) {
           MatrixPtr in = colBuf_->subMatrix(g * K, K);
           MatrixPtr outG = oGrad->subMatrix(g * M, M);
-          MatrixPtr wGradSub = wGrad->subMatrix(g * M, K);
+          MatrixPtr wGradSub = wGrad->subMatrix(g * M, M);
           wGradSub->mul(*outG, *(in->getTranspose()), 1, 1);
       }
   }
