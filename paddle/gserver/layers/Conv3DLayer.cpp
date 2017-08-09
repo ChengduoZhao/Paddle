@@ -103,12 +103,13 @@ void Conv3DLayer::forward(PassType passType) {
                            paddingZ_[i], paddingY_[i], padding_[i]);
 
           real *outData = output->getData() + n * outWidth;
+          MatrixPtr oData =
+                  Matrix::create(outData, groups_[i] * M, N, false, useGpu_);
           for (int g = 0; g < groups_[i]; g++) {
               MatrixPtr weight = weights->subMatrix(g * M, M);
               MatrixPtr in = colBuf_->subMatrix(g * K, K);
-              MatrixPtr out = Matrix::create(outData, M, N, false, useGpu_);
+              MatrixPtr out = oData->subMatrix(g * M, M);
               out->mul(*weight, *in, 1, 0);
-              outData += M * N;
           }
       }
   }
@@ -162,13 +163,11 @@ void Conv3DLayer::bpropWeights(int i) {
       outGrad += n * getOutputGrad()->getWidth();
       MatrixPtr oGrad =
               Matrix::create(outGrad, groups_[i] * M, N, false, useGpu_);
-      real *wGradData = wGrad->getData();
       for (int g = 0; g < groups_[i]; ++g) {
           MatrixPtr in = colBuf_->subMatrix(g * K, K);
           MatrixPtr outG = oGrad->subMatrix(g * M, M);
-          MatrixPtr wGradSub = Matrix::create(wGradData, M, K, false, useGpu_);
+          MatrixPtr wGradSub = wGrad->subMatrix(g * M, K);
           wGradSub->mul(*outG, *(in->getTranspose()), 1, 1);
-          wGradData += M * K;
       }
   }
 }
