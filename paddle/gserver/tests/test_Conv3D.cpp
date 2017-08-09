@@ -47,7 +47,7 @@ void testConv3D_Layer() {
   const int CHANNELS = 3;
   const int IMAGE_SIZE = 9;
   const int IMAGE_SIZE_Y = 9;
-  const int IMAGE_SIZE_Z = 9;   //  2, 3, 5, 5, 5
+  const int IMAGE_SIZE_Z = 9;
 
   // Setting up conv-trans layer
   TestConfig config;
@@ -136,11 +136,11 @@ void testConv3D_Layer() {
       for (int k = 0; k < depth; ++k) {
         for (int i = 0; i < height; i++) {
           for (int j = 0; j < width; j++) {
-        	  CHECK_EQ(convtLayer->getOutput().value->data_\
+        	  EXPECT_FLOAT_EQ(convtLayer->getOutput().value->data_\
         	            [t * channel * height * width + \
         	             c * depth * width * height + \
         	             k * width * height + \
-        	             i * width + j], 8.5);
+        	             i * width + j], 81.5);
           }
         }
       }
