@@ -142,11 +142,8 @@ void testConv3D_Layer() {
         	             k * width * height + \
         	             i * width + j], 8.5);
           }
-          cout << "\n";
         }
-        cout << "\n";
       }
-      cout << "\n";
     }
   }
 }
