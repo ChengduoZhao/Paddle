@@ -84,32 +84,32 @@ void Conv3DLayer::forward(PassType passType) {
   int batchSize = inputLayers_[0]->getOutputValue()->getHeight();
   int outWidth = getSize();
   resetOutput(batchSize, outWidth);
-  const MatrixPtr output = getOutputValue();
+  const MatrixPtr outMat = getOutputValue();
 
   for (size_t i = 0; i != inputLayers_.size(); ++i) {
       REGISTER_TIMER_INFO("FwdConv3D", getName().c_str());
-      const MatrixPtr& input = getInputValue(i);
-      int width = input->getWidth();
+      const MatrixPtr& inMat = getInputValue(i);
+      int width = inMat->getWidth();
       int M = M_[i];
       int N = N_[i];
       int K = K_[i];
       Matrix::resizeOrCreate(colBuf_, K * groups_[i], N, false, useGpu_);
-      MatrixPtr weights = weights_[i]->getW();
+      MatrixPtr wMat = weights_[i]->getW();
       for (int n = 0; n < batchSize; ++n) {
-          colBuf_->vol2Col(input->getData() + n * width, channels_[i],
+          colBuf_->vol2Col(inMat->getData() + n * width, channels_[i],
                            imgSizeD_[i], imgSizeH_[i], imgSizeW_[i],
                            filterSizeZ_[i], filterSizeY_[i], filterSize_[i],
                            strideZ_[i], strideY_[i], stride_[i],
                            paddingZ_[i], paddingY_[i], padding_[i]);
 
-          real *outData = output->getData() + n * outWidth;
-          MatrixPtr oData =
+          real *outData = outMat->getData() + n * outWidth;
+          MatrixPtr outMatSub =
                   Matrix::create(outData, groups_[i] * M, N, false, useGpu_);
           for (int g = 0; g < groups_[i]; g++) {
-              MatrixPtr weight = weights->subMatrix(g * M, M);
+              MatrixPtr wMatSub = wMat->subMatrix(g * M, M);
               MatrixPtr in = colBuf_->subMatrix(g * K, K);
-              MatrixPtr out = oData->subMatrix(g * M, M);
-              out->mul(*weight, *in, 1, 0);
+              MatrixPtr out = outMatSub->subMatrix(g * M, M);
+              out->mul(*wMatSub, *in, 1, 0);
           }
       }
   }
@@ -128,8 +128,6 @@ void Conv3DLayer::backward(const UpdateCallback &callback) {
       biases_->getParameterPtr()->incUpdate(callback);
   }
 
-  MatrixPtr outGrad = getOutputGrad();
-
   for (size_t i = 0; i != inputLayers_.size(); ++i) {
       REGISTER_TIMER_INFO("BwdConv3D", getName().c_str());
       if (weights_[i]->getWGrad()) {
@@ -147,27 +145,27 @@ void Conv3DLayer::bpropWeights(int i) {
   int M = M_[i];
   int N = N_[i];
   int K = K_[i];
-  const MatrixPtr& input = getInputValue(i);
-  int width = input->getWidth();
+  const MatrixPtr& inMat = getInputValue(i);
+  int width = inMat->getWidth();
   Matrix::resizeOrCreate(colBuf_, K * groups_[i], N, false, useGpu_);
-  MatrixPtr wGrad = weights_[i]->getWGrad();
-  real* outGrad = getOutputGrad()->getData();
+  MatrixPtr wGradMat = weights_[i]->getWGrad();
+  real* outGradData = getOutputGrad()->getData();
   int batchSize = inputLayers_[0]->getOutputValue()->getHeight();
 
   for (int n = 0; n < batchSize; ++n) {
-      colBuf_->vol2Col(input->getData() + n * width, channels_[i],
+      colBuf_->vol2Col(inMat->getData() + n * width, channels_[i],
                        imgSizeD_[i], imgSizeH_[i], imgSizeW_[i],
                        filterSizeZ_[i], filterSizeY_[i], filterSize_[i],
                        strideZ_[i], strideY_[i], stride_[i],
                        paddingZ_[i], paddingY_[i], padding_[i]);
-      outGrad += n * getOutputGrad()->getWidth();
-      MatrixPtr oGrad =
-              Matrix::create(outGrad, groups_[i] * M, N, false, useGpu_);
+      outGradData += n * getOutputGrad()->getWidth();
+      MatrixPtr outGradSub =
+              Matrix::create(outGradData, groups_[i] * M, N, false, useGpu_);
       for (int g = 0; g < groups_[i]; ++g) {
-          MatrixPtr in = colBuf_->subMatrix(g * K, K);
-          MatrixPtr outG = oGrad->subMatrix(g * M, M);
-          MatrixPtr wGradSub = wGrad->subMatrix(g * M, M);
-          wGradSub->mul(*outG, *(in->getTranspose()), 1, 1);
+          MatrixPtr inMatSub = colBuf_->subMatrix(g * K, K);
+          MatrixPtr outG = outGradSub->subMatrix(g * M, M);
+          MatrixPtr wGradSub = wGradMat->subMatrix(g * M, M);
+          wGradSub->mul(*outG, *(inMatSub->getTranspose()), 1, 1);
       }
   }
 }
@@ -177,22 +175,22 @@ void Conv3DLayer::bpropData(int i) {
   int N = N_[i];
   int K = K_[i];
   Matrix::resizeOrCreate(colBuf_, K * groups_[i], N, false, useGpu_);
-  MatrixPtr weight = weights_[i]->getW();
-  real* outGrad = getOutputGrad()->getData();
-  real* preGrad = getInputGrad(i)->getData();
+  MatrixPtr wMat = weights_[i]->getW();
+  real* outGradData = getOutputGrad()->getData();
+  real* preGradData = getInputGrad(i)->getData();
   int batchSize = inputLayers_[0]->getOutputValue()->getHeight();
   for (int n = 0; n < batchSize; ++n) {
-      outGrad += n * getOutputGrad()->getWidth();
-      preGrad += n * getInputGrad(i)->getWidth();
-      MatrixPtr outG =
-              Matrix::create(outGrad, M * groups_[i], N, false, useGpu_);
+      outGradData += n * getOutputGrad()->getWidth();
+      preGradData += n * getInputGrad(i)->getWidth();
+      MatrixPtr outGradSub =
+              Matrix::create(outGradData, M * groups_[i], N, false, useGpu_);
       for (int g = 0; g < groups_[i]; ++g) {
-          MatrixPtr w = weight->subMatrix(g * M, M);
-          MatrixPtr outGradSub = outG->subMatrix(g * M, M);
-          MatrixPtr inGrad = colBuf_->subMatrix(g * K, K);
-          inGrad->mul(*(w->getTranspose()), *outGradSub, 1, 0);
+          MatrixPtr wMatSub = wMat->subMatrix(g * M, M);
+          MatrixPtr outG = outGradSub->subMatrix(g * M, M);
+          MatrixPtr inGradMatSub = colBuf_->subMatrix(g * K, K);
+          inGradMatSub->mul(*(wMatSub->getTranspose()), *outG, 1, 0);
       }
-      colBuf_->col2Vol(preGrad, channels_[i],
+      colBuf_->col2Vol(preGradData, channels_[i],
                        imgSizeD_[i], imgSizeH_[i], imgSizeW_[i],
                        filterSizeZ_[i], filterSizeY_[i], filterSize_[i],
                        strideZ_[i], strideY_[i], stride_[i],
@@ -202,24 +200,24 @@ void Conv3DLayer::bpropData(int i) {
 }
 
 void Conv3DLayer::bpropBiases() {
-  MatrixPtr outGrad = getOutputGrad();
+  MatrixPtr outGradMat = getOutputGrad();
   biases_->getWGrad()->reshape(
           biases_->getWGrad()->width_, biases_->getWGrad()->height_);
 
   if (this->sharedBiases_) {
-      biases_->getWGrad()->collectSharedBias(*outGrad, 1.0f);
+      biases_->getWGrad()->collectSharedBias(*outGradMat, 1.0f);
   } else {
-      biases_->getWGrad()->collectBias(*outGrad, 1.0f);
+      biases_->getWGrad()->collectBias(*outGradMat, 1.0f);
   }
 }
 
 void Conv3DLayer::addBias() {
-  MatrixPtr output = getOutputValue();
+  MatrixPtr outMat = getOutputValue();
   biases_->getW()->reshape(biases_->getW()->width_, biases_->getW()->height_);
   if (this->sharedBiases_) {
-      output->addSharedBias(*(biases_->getW()), 1.0f);
+      outMat->addSharedBias(*(biases_->getW()), 1.0f);
   } else {
-      output->addBias(*(biases_->getW()), 1.0f);
+      outMat->addBias(*(biases_->getW()), 1.0f);
   }
 }
 
